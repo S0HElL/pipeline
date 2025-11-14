@@ -2,6 +2,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 from typing import List, Tuple
 import textwrap
+import re
 
 # Define a default font path. This should be a common, readable font.
 # If a specific font file is available, it should be used.
@@ -11,14 +12,16 @@ import textwrap
 DEFAULT_FONT_PATH = "fonts/Wild Words Roman.ttf"
 
 def get_font(size: int) -> ImageFont.FreeTypeFont:
-    """Loads a font at the specified size."""
+    """Loads a font at the specified size with fallback."""
     try:
-        # Attempt to load the default font
         return ImageFont.truetype(DEFAULT_FONT_PATH, size)
     except IOError:
-        # Fallback to a default PIL font if the specified path fails
-        print(f"Warning: Could not load font at {DEFAULT_FONT_PATH}. Falling back to default PIL font.")
-        return ImageFont.load_default()
+        # Try a fallback font with better Unicode support
+        try:
+            return ImageFont.truetype("animeace2_reg.otf", size)
+        except IOError:
+            print(f"Warning: Could not load fonts. Falling back to default PIL font.")
+            return ImageFont.load_default()
 
 def calculate_font_size(draw: ImageDraw.ImageDraw, text: str, box_width: int, box_height: int, max_size: int = 50, min_size: int = 10) -> Tuple[int, str]:
     """
@@ -87,11 +90,13 @@ def render_text(image_pil: Image.Image, translated_text: str, bounding_box: Tupl
     draw = ImageDraw.Draw(image_pil)
     x_min, y_min, x_max, y_max = bounding_box
     
-    # Fix: Replace common non-ASCII punctuation (like ellipsis) that may not be in the font
-    # and renders as a square, with standard ASCII equivalents.
-    # Full-width period (\uff0e) and single ellipsis (\u2026) are common culprits.
-    translated_text = translated_text.replace('…', '...').replace('．', '.')
-    
+    # First normalize full-width periods and ellipsis to ASCII
+    translated_text = translated_text.replace('．', '.').replace('…', '.')
+
+    # Remove spaces between periods first, then collapse multiple periods
+    translated_text = re.sub(r'\.\s+\.', '..', translated_text)  # Replace ". ." with ".."
+    translated_text = re.sub(r'\.{3,}', '...', translated_text)   # Then collapse 3+ periods
+            
     # Calculate available space for text
     box_width = x_max - x_min - 2 * padding
     box_height = y_max - y_min - 2 * padding

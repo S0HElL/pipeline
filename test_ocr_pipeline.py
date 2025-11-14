@@ -2,6 +2,11 @@ import os
 from ocr_module import load_image, extract_text_from_image
 from text_location_detection import detect_text_regions, visualize_bounding_boxes
 
+def text_to_unicode_ids(text: str) -> str:
+    """Converts a string of characters into a space-separated string of Unicode IDs (e.g., 'u299')."""
+    return ' '.join([f"u{ord(char):x}" for char in text])
+
+
 def run_ocr_pipeline_test(image_path: str):
     """
     Runs the full OCR pipeline (detection and extraction) on a single image.
@@ -50,15 +55,17 @@ def run_ocr_pipeline_test(image_path: str):
     full_image_text = extract_text_from_image(pil_image)
     
     if full_image_text:
-        print("\n--- Extracted Text (Full Image) ---")
-        print(full_image_text)
-        print("----------------------------------")
+        unicode_ids = text_to_unicode_ids(full_image_text)
+        output_file = "result.txt"
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(unicode_ids)
+        print(f"\n--- Extracted Unicode IDs saved to: {output_file} ---")
+        print(f"First 10 IDs: {unicode_ids[:50]}...")
     else:
         print("Text extraction failed.")
         
     # 3. Verification (Manual step for the user)
     print("\n--- Verification ---")
-    print(f"Please check the extracted text against the original image: {image_path}")
     print(f"Please check the bounding box visualization: {output_box_path}")
     print("Verify text extraction accuracy and debug any issues.")
 
@@ -74,14 +81,12 @@ if __name__ == '__main__':
         
     # Define sample image paths
     sample_images = [
-        os.path.join(data_dir, 'sample_manga_1.jpg'),
-        os.path.join(data_dir, 'sample_manga_2.png'),
-        os.path.join(data_dir, 'sample_manga_3.jpeg'),
+        os.path.join(data_dir, 'sample_manga_6.jpg'),
     ]
     
-    print("--- OCR Pipeline Test Script ---")
+    print("--- OCR Pipeline Test Script (Targeting sample_manga_6.jpg) ---")
     print("NOTE: This script requires sample Japanese manga images in the 'data/' directory.")
-    print("Please ensure you have at least one of the following files:")
+    print("Running test for the following file:")
     for img_path in sample_images:
         print(f"- {img_path}")
         
