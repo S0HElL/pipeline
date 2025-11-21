@@ -32,6 +32,61 @@ def setup_environment():
         logging.error(f"Failed to initialize translation model: {e}")
         # The pipeline will handle the error if translation is called later
 
+def group_bounding_boxes(boxes: List[Tuple[int, int, int, int]], y_threshold: int = 50) -> List[List[Tuple[int, int, int, int]]]:
+    """
+    Groups bounding boxes that are vertically close to each other.
+    This assumes the input boxes are already sorted in reading order (e.g., top-to-bottom).
+    
+    Args:
+        boxes: A list of bounding box tuples: [(x_min, y_min, x_max, y_max), ...]
+        y_threshold: The maximum vertical distance between two boxes to be considered a group.
+        
+    Returns:
+        A list of groups, where each group is a list of original bounding boxes.
+    """
+    if not boxes:
+        return []
+
+    # Sort boxes by y_min (top-to-bottom) as a primary sort, then x_min (left-to-right)
+    # This is crucial for correct reading order.
+    sorted_boxes = sorted(boxes, key=lambda b: (b[1], b[0]))
+    
+    groups = []
+    current_group = [sorted_boxes[0]]
+
+    for i in range(1, len(sorted_boxes)):
+        prev_box = sorted_boxes[i-1]
+        current_box = sorted_boxes[i]
+        
+        # Check vertical distance: if the top of the current box is close to the bottom of the previous box
+        prev_y_max = prev_box[3]
+        current_y_min = current_box[1]
+        
+        # Simple vertical proximity check
+        vertical_distance = current_y_min - prev_y_max
+        
+        if 0 <= vertical_distance <= y_threshold:
+            # They are close enough vertically, group them
+            current_group.append(current_box)
+        else:
+            # New group starts
+            groups.append(current_group)
+            current_group = [current_box]
+
+    # Add the last group
+    if current_group:
+        groups.append(current_group)
+        
+    return groups
+
+def get_group_bounding_box(group: List[Tuple[int, int, int, int]]) -> Tuple[int, int, int, int]:
+    """Calculates the minimum bounding box that encompasses all boxes in a group."""
+    x_min = min(box[0] for box in group)
+    y_min = min(box[1] for box in group)
+    x_max = max(box[2] for box in group)
+    y_max = max(box[3] for box in group)
+    return (x_min, y_min, x_max, y_max)
+
 def process_manga_page(input_image_path: str, output_image_path: str):
     """
     The main pipeline function to translate a single manga page.
@@ -72,43 +127,63 @@ def process_manga_page(input_image_path: str, output_image_path: str):
     # 3 & 4. Extract Japanese text (OCR) and Translate per bounding box
     translated_texts: List[Tuple[Tuple[int, int, int, int], str]] = []
     
-    for i, box in enumerate(bounding_boxes):
-        x_min, y_min, x_max, y_max = box
+    # Group the bounding boxes that are close together (likely a single speech bubble)
+    grouped_boxes = group_bounding_boxes(bounding_boxes)
+    logging.info(f"Grouped {len(bounding_boxes)} boxes into {len(grouped_boxes)} translation units.")
+    
+    for i, group in enumerate(grouped_boxes):
+        # Calculate the single bounding box for the entire group (for inpainting and rendering)
+        group_box = get_group_bounding_box(group)
+        
+        # Collect text from all individual boxes within the group
+        combined_japanese_text = []
+        
+        for j, box in enumerate(group):
+            x_min, y_min, x_max, y_max = box
+            
+            try:
+                # Crop the image to the individual bounding box region
+                cropped_image = original_image.crop((x_min, y_min, x_max, y_max))
+                
+                # Extract Japanese text from the cropped region
+                japanese_text_raw = extract_text_from_image(cropped_image)
+                
+                if japanese_text_raw is None or not str(japanese_text_raw).strip():
+                    logging.warning(f"OCR returned no text for box {j+1} in group {i+1}. Skipping.")
+                    continue
+                    
+                japanese_text = str(japanese_text_raw)
+                combined_japanese_text.append(japanese_text)
+                
+            except Exception as e:
+                logging.error(f"Pipeline error during OCR for box {j+1} in group {i+1}: {e}. Skipping.")
+                continue
+
+        # Join the text from all boxes in the group for a single, context-aware translation
+        full_japanese_text = " ".join(combined_japanese_text)
+        
+        if not full_japanese_text.strip():
+            logging.warning(f"No text was extracted for group {i+1}/{len(grouped_boxes)}. Skipping translation.")
+            continue
+            
+        logging.info(f"Group {i+1}/{len(grouped_boxes)}: Extracted Japanese Text: {full_japanese_text[:30]}...")
         
         try:
-            # Crop the image to the bounding box region
-            # PIL's crop method takes (left, upper, right, lower)
-            cropped_image = original_image.crop((x_min, y_min, x_max, y_max))
-            
-            # Extract Japanese text from the cropped region
-            japanese_text_raw = extract_text_from_image(cropped_image)
-            
-            if japanese_text_raw is None:
-                logging.warning(f"OCR returned None for region {i+1}/{len(bounding_boxes)}. Skipping.")
-                continue
-                
-            japanese_text = str(japanese_text_raw)
-            
-            if not japanese_text.strip():
-                logging.warning(f"OCR extracted no text for region {i+1}/{len(bounding_boxes)}. Skipping.")
-                continue
-            
-            logging.info(f"Region {i+1}/{len(bounding_boxes)}: Extracted Japanese Text: {japanese_text[:30]}...")
-            
-            # Translate Japanese text to English
-            english_text = translate_japanese_to_english(japanese_text)
+            # Translate the combined Japanese text to English
+            english_text = translate_japanese_to_english(full_japanese_text)
             
             if "[Translation Error" in english_text:
-                logging.error(f"Translation failed for region {i+1}/{len(bounding_boxes)}: {english_text}. Skipping.")
+                logging.error(f"Translation failed for group {i+1}/{len(grouped_boxes)}: {english_text}. Skipping.")
                 continue
             
-            logging.info(f"Region {i+1}/{len(bounding_boxes)}: Translated English Text: {english_text[:30]}...")
+            logging.info(f"Group {i+1}/{len(grouped_boxes)}: Translated English Text: {english_text[:30]}...")
             
-            # Store the original box and the translated text
-            translated_texts.append((box, english_text))
+            # Store the group box and the translated text. The text renderer will now render
+            # the full translated text into the single, larger group box.
+            translated_texts.append((group_box, english_text))
             
         except Exception as e:
-            logging.error(f"Pipeline error during OCR/Translation for region {i+1}/{len(bounding_boxes)}: {e}. Skipping.")
+            logging.error(f"Pipeline error during Translation for group {i+1}/{len(grouped_boxes)}: {e}. Skipping.")
             continue
 
     if not translated_texts:
@@ -159,7 +234,7 @@ def main():
     # Setup environment and models
     setup_environment()
     
-    input_path = args.input_file
+    input_path = os.path.normpath(args.input_file)
     
     # Create output filename
     base_name = os.path.basename(input_path)

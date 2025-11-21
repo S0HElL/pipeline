@@ -46,7 +46,7 @@ def break_long_word(word: str, max_width: int, draw: ImageDraw.ImageDraw, font: 
 
     # If no hyphenated version fits → give up (font too big)
     return word
-def calculate_font_size(draw: ImageDraw.ImageDraw, text: str, box_width: int, box_height: int, max_size: int = 50, min_size: int = 10) -> Tuple[int, str]:
+def calculate_font_size(draw: ImageDraw.ImageDraw, text: str, box_width: int, box_height: int, max_size: int = 80, min_size: int = 10) -> Tuple[int, str]:
     """
     Binary search for the largest font size that fits, with intelligent word breaking.
     """
