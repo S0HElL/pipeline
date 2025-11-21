@@ -11,7 +11,7 @@ HYPHENATOR = pyphen.Pyphen(lang='en_US')
 
 # Define a default font path. This should be a common, readable font.
 
-DEFAULT_FONT_PATH = "fonts/Wild Words Roman.ttf"
+DEFAULT_FONT_PATH = "fonts/animeace2_reg.otf"
 
 def get_font(size: int) -> ImageFont.FreeTypeFont:
     """Loads a font at the specified size with fallback."""
@@ -20,115 +20,130 @@ def get_font(size: int) -> ImageFont.FreeTypeFont:
     except IOError:
         # Try a fallback font with better Unicode support
         try:
-            return ImageFont.truetype("animeace2_reg.otf", size)
+            return ImageFont.truetype("Wild Words Roman.ttf", size)
         except IOError:
             print(f"Warning: Could not load fonts. Falling back to default PIL font.")
             return ImageFont.load_default()
 
-def break_long_word(word: str, max_width: int, draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont) -> str:
-    """
-    Breaks a long word into two parts with a hyphen at a valid hyphenation point
-    if it exceeds max_width. Returns the word with a hyphen and newline inserted.
-    
-    If no valid hyphenation point fits, it falls back to the original greedy break.
-    """
-    # Check if word fits
-    bbox = draw.textbbox((0, 0), word, font=font)
-    word_width = bbox[2] - bbox[0]
-    
-    if word_width <= max_width:
-        return word
-    
-    # 1. Get valid hyphenation points (indices where a hyphen can be inserted)
-    # e.g., for 'goodness', positions might be [4] for 'good-ness'
-    hyphen_positions = HYPHENATOR.positions(word)
-    
-    # 2. Find the best breaking point from the valid positions
-    # Iterate from the longest possible prefix to the shortest
-    for i in reversed(hyphen_positions):
-        # i is the index *after* which the hyphen is inserted
-        # word[:i] is the first part, word[i:] is the second part
-        test_fragment = word[:i] + '-'
-        
-        bbox = draw.textbbox((0, 0), test_fragment, font=font)
-        fragment_width = bbox[2] - bbox[0]
-        
-        if fragment_width <= max_width:
-            # This is the longest valid hyphenation break that fits.
-            return word[:i] + '-\n' + word[i:]
-            
-    # 3. Fallback: If no valid hyphenation point fits (i.e., the first valid hyphenation
-    # part is still too wide), we must return the original word. The calling function
-    # (calculate_font_size) will then try a smaller font size.
-    return word
 
+def break_long_word(word: str, max_width: int, draw: ImageDraw.ImageDraw, font: ImageFont.FreeTypeFont) -> str:
+    bbox = draw.textbbox((0, 0), word, font=font)
+    w = bbox[2] - bbox[0]
+    if w <= max_width:
+        return word
+
+    hyphen_positions = HYPHENATOR.positions(word)
+    if not hyphen_positions:
+        # No hyphenation points → force break somewhere reasonable
+        # We'll let caller handle failure
+        return word
+
+    # Try longest valid prefix first
+    for i in reversed(hyphen_positions):
+        prefix = word[:i] + '-'
+        if draw.textbbox((0, 0), prefix, font=font)[2] <= max_width:
+            return word[:i] + '-\n' + word[i:]
+
+    # If no hyphenated version fits → give up (font too big)
+    return word
 def calculate_font_size(draw: ImageDraw.ImageDraw, text: str, box_width: int, box_height: int, max_size: int = 50, min_size: int = 10) -> Tuple[int, str]:
     """
-    Task 5.1.3 & 5.2.1: Calculates the largest font size that allows the wrapped text to fit 
-    within the bounding box. Returns the best size and the wrapped text.
+    Binary search for the largest font size that fits, with intelligent word breaking.
     """
     best_size = min_size
     best_wrapped_text = text
     
-    # Binary search for the best fit
-    for size in range(min_size, max_size + 1):
+    # Actual binary search
+    low, high = min_size, max_size
+    
+    while low <= high:
+        size = (low + high) // 2
         font = get_font(size)
         
-        # Measure character width
-        try:
-            char_width = draw.textbbox((0, 0), 'W', font=font)[2]
-        except Exception:
-            char_width = font.getsize('W')[0]
-            
-        if char_width == 0:
-            break 
+        # Try wrapping with this font size
+        result = wrap_text_with_breaking(draw, text, box_width, box_height, font)
         
-        # Check each ORIGINAL word to see if any are too wide for the box
-        original_words = text.split()
-        words_to_break = set()
-        
-        for word in original_words:
-            bbox = draw.textbbox((0, 0), word, font=font)
-            word_width = bbox[2] - bbox[0]
-            
-            # If a single word is wider than 975% of box, mark it for breaking
-            if word_width > box_width * 0.975:
-                words_to_break.add(word)
-        
-        # If we have words that need breaking, process them
-        if words_to_break:
-            processed_text = text
-            for word in words_to_break:
-                broken_word = break_long_word(word, box_width, draw, font)
-                processed_text = processed_text.replace(word, broken_word)
+        if result is None:
+            # Doesn't fit, try smaller
+            high = size - 1
         else:
-            processed_text = text
-        
-        # Now wrap the text normally
-        max_chars_per_line = max(1, int(box_width / char_width * 1.6))
-        wrapper = textwrap.TextWrapper(
-            width=max_chars_per_line, 
-            break_long_words=False,
-            break_on_hyphens=False
-        )
-        
-        try:
-            wrapped_text = '\n'.join(wrapper.wrap(text=processed_text))
-        except:
-            continue
-        
-        # Measure total height with padding
-        bbox = draw.textbbox((0, 0), wrapped_text, font=font)
-        text_height = bbox[3] - bbox[1]
-        
-        # Use 1.3x buffer for breathing room
-        if text_height * 1.3 <= box_height:
+            # Fits! Try larger
             best_size = size
-            best_wrapped_text = wrapped_text
-        else:
-            break
+            best_wrapped_text = result
+            low = size + 1
             
+   
     return best_size, best_wrapped_text
+
+def wrap_text_with_breaking(draw: ImageDraw.ImageDraw, text: str, box_width: int, box_height: int, font: ImageFont.FreeTypeFont) -> str | None:
+    words = text.split()
+    lines = []
+    current_line_words = []
+
+    def get_text_width(t: str) -> int:
+        return draw.textbbox((0, 0), t, font=font)[2] - draw.textbbox((0, 0), t, font=font)[0]
+
+    for word in words:
+        # Test adding the word with a space (unless it's the first word in line)
+        test_line = ' '.join(current_line_words + [word]) if current_line_words else word
+        test_width = get_text_width(test_line)
+
+        if test_width <= box_width:
+            # It fits → keep building the line
+            current_line_words.append(word)
+            continue
+
+        # Line is full → flush current line
+        if current_line_words:
+            lines.append(' '.join(current_line_words))
+            current_line_words = []
+
+        # Now try to place the current word on a new line
+        word_width = get_text_width(word)
+        if word_width <= box_width:
+            current_line_words.append(word)
+        else:
+            # Word is too long → hyphenate
+            broken = break_long_word(word, box_width, draw, font)
+            if '\n' not in broken:
+                # Even first fragment doesn't fit → this font size is impossible
+                return None
+
+            parts = broken.split('\n')
+            # All parts except last go on their own lines
+            for part in parts[:-1]:
+                if get_text_width(part) > box_width:
+                    return None  # Shouldn't happen if break_long_word is correct
+                lines.append(part)
+            # Last part starts the next line
+            current_line_words = [parts[-1]]
+
+    # Don't forget the last line
+    if current_line_words:
+        lines.append(' '.join(current_line_words))
+
+    wrapped = '\n'.join(lines)
+
+    # === Accurate vertical fit check ===
+    try:
+        # PIL 8+ has multiline_textbbox
+        total_bbox = draw.multiline_textbbox((0, 0), wrapped, font=font, align='center')
+        total_height = total_bbox[3] - total_bbox[1]
+    except AttributeError:
+        # Fallback: estimate line height
+        line_height = font.getsize('hg')[1]  # ascent + descent approximation
+        total_height = len(lines) * line_height * 1.2
+
+    if total_height > box_height:
+        return None
+
+    # Final horizontal safety check
+    for line in lines:
+        if get_text_width(line) > box_width:
+            return None
+
+    return wrapped
+
 
 def render_text(image_pil: Image.Image, translated_text: str, bounding_box: Tuple[int, int, int, int], padding: int = 5) -> Image.Image:
     """
@@ -168,19 +183,18 @@ def render_text(image_pil: Image.Image, translated_text: str, bounding_box: Tupl
     
     # 2. Calculate centered text position (Task 5.2.2)
     # Get the total size of the wrapped text
-    bbox = draw.textbbox((0, 0), wrapped_text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    
-    # Calculate center coordinates for the text block within the padded box
-    # Center X: (Box_Center_X) - (Text_Width / 2)
-    # Center Y: (Box_Center_Y) - (Text_Height / 2)
-    
-    box_center_x = x_min + (x_max - x_min) / 2
-    box_center_y = y_min + (y_max - y_min) / 2
-    
-    text_x = int(box_center_x - text_width / 2)
-    text_y = int(box_center_y - text_height / 2)
+    # Use multiline_textbbox for accurate height
+    try:
+        bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, align='center')
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+    except AttributeError:
+        bbox = draw.textbbox((0, 0), wrapped_text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+
+    text_x = int(x_min + padding + (box_width - text_width) / 2)
+    text_y = int(y_min + padding + (box_height - text_height) / 2)
     
     # 3. Render the text with a white outline (Task 5.2.4)
     outline_color = "white"
