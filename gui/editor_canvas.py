@@ -352,7 +352,9 @@ class EditorCanvas(QGraphicsView):
     
     # Signals
     selection_changed = Signal(object)  # Emits selected bounding box data
+    color_picked = Signal(object)  # Emits picked color
     
+        
     def __init__(self, parent=None):
         super().__init__(parent)
         self.scene = QGraphicsScene()
@@ -383,7 +385,11 @@ class EditorCanvas(QGraphicsView):
         self.active_handle = None
         self.resize_edge = None
         
+        # Eye dropper state
+        self.eyedropper_active = False
+        
         self.setup_view()
+      
 
         
     def setup_view(self):
@@ -418,6 +424,26 @@ class EditorCanvas(QGraphicsView):
         self.zoom_factor /= factor
         self.zoom_factor = max(self.min_zoom, self.zoom_factor)
         self.scale(1/factor, 1/factor)
+        
+    def pick_color_at_position(self, scene_pos):
+        """Pick color from the image at the given scene position."""
+        if not self.current_pixmap:
+            return
+            
+        # Convert scene position to image coordinates
+        x = int(scene_pos.x())
+        y = int(scene_pos.y())
+        
+        # Check if position is within image bounds
+        if 0 <= x < self.current_pixmap.width() and 0 <= y < self.current_pixmap.height():
+            # Get the color at the position
+            image = self.current_pixmap.toImage()
+            color = QColor(image.pixel(x, y))
+            
+            # Emit the picked color
+            self.color_picked.emit(color)
+        else:
+            print("DEBUG: Eye dropper click outside image bounds")
     
     def reset_zoom(self):
         """Reset zoom to fit image."""
@@ -555,6 +581,14 @@ class EditorCanvas(QGraphicsView):
         pos = self.mapToScene(event.position().toPoint())
         
         if event.button() == Qt.LeftButton:
+            # Check for eye dropper mode
+            if self.eyedropper_active:
+                self.pick_color_at_position(pos)
+                self.eyedropper_active = False
+                self.setCursor(Qt.ArrowCursor)
+                event.accept()
+                return
+            
             # Check if we clicked on a bounding box or a handle
             items = self.scene.items(pos, Qt.IntersectsItemShape, Qt.DescendingOrder)
             
@@ -562,13 +596,11 @@ class EditorCanvas(QGraphicsView):
             clicked_handle = None
             
 
-
             
             for item in items:
                 if isinstance(item, ResizeHandle):
                     clicked_handle = item
                     clicked_box = item.parentItem()
-
                     break  # Handle takes priority
                 elif isinstance(item, BoundingBoxItem):
                     if clicked_box is None:  # Only set if we haven't found a handle
@@ -582,7 +614,6 @@ class EditorCanvas(QGraphicsView):
                     self.resizing = True
                     self.active_handle = clicked_box
                     self.resize_edge = clicked_handle
-
                     event.accept()  # Don't propagate
                     return
                 else:
@@ -593,7 +624,6 @@ class EditorCanvas(QGraphicsView):
                         self.resizing = True
                         self.active_handle = clicked_box
                         self.resize_edge = edge
-
                         event.accept()
                         return
                     else:
@@ -601,13 +631,13 @@ class EditorCanvas(QGraphicsView):
                         self.resizing = False
                         self.active_handle = None
                         self.resize_edge = None
-
+                        
                         super().mousePressEvent(event)
                         return
             else:
                 # Deselect all
                 self.deselect_all()
-
+                
                 
         super().mousePressEvent(event)
         
@@ -744,12 +774,18 @@ class EditorCanvas(QGraphicsView):
             
     def keyPressEvent(self, event):
         """Handle key press events."""
-        if event.key() == Qt.Key_Delete and self.selected_box_index >= 0:
+        if event.key() == Qt.Key_Escape:
+            if self.eyedropper_active:
+                # Cancel eye dropper
+                self.eyedropper_active = False
+                self.setCursor(Qt.ArrowCursor)
+                event.accept()
+            else:
+                # Deselect all
+                self.deselect_all()
+        elif event.key() == Qt.Key_Delete and self.selected_box_index >= 0:
             # Delete selected bounding box
             self.delete_selected_box()
-        elif event.key() == Qt.Key_Escape:
-            # Deselect all
-            self.deselect_all()
         else:
             super().keyPressEvent(event)
             

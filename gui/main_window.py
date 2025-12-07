@@ -203,6 +203,22 @@ class MainWindow(QMainWindow):
         except AttributeError:
             pass
         
+    def activate_eyedropper(self):
+        """Activate the eye dropper tool."""
+        try:
+            self.canvas.setCursor(Qt.CrossCursor)
+            self.canvas.eyedropper_active = True
+            self.status_bar.showMessage("Click on the image to pick a color. Press ESC to cancel.")
+        except AttributeError:
+            pass
+
+    def on_color_picked(self, color):
+        """Handle color picked from eye dropper."""
+        if color and color.isValid():
+            self.canvas.current_text_color = color.name()
+            self.canvas.update_text_style()
+            self.status_bar.showMessage(f"Color picked: {color.name()}")
+        
     def create_menu_bar(self):
         """Create the application menu bar."""
         menubar = self.menuBar()
@@ -408,9 +424,17 @@ class MainWindow(QMainWindow):
         
         # Text color
         color_label = QLabel("Text Color:")
+        color_layout = QHBoxLayout()
         self.color_btn = QPushButton("Choose Color")
         self.color_btn.clicked.connect(self.choose_text_color)
-        
+
+        self.eyedropper_btn = QPushButton("Eye Dropper")
+        self.eyedropper_btn.clicked.connect(self.activate_eyedropper)
+        self.eyedropper_btn.setToolTip("Pick color from image")
+
+        color_layout.addWidget(self.color_btn)
+        color_layout.addWidget(self.eyedropper_btn)
+                
         # Alignment
         align_label = QLabel("Text Alignment:")
         self.align_combo = QComboBox()
@@ -421,7 +445,7 @@ class MainWindow(QMainWindow):
         typesetting_layout.addWidget(size_label)
         typesetting_layout.addWidget(self.font_size_spin)
         typesetting_layout.addWidget(color_label)
-        typesetting_layout.addWidget(self.color_btn)
+        typesetting_layout.addLayout(color_layout)  # Changed from addWidget to addLayout
         typesetting_layout.addWidget(align_label)
         typesetting_layout.addWidget(self.align_combo)
         typesetting_layout.addStretch()
@@ -494,8 +518,9 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self.canvas, 'selection_changed'):
                 self.canvas.selection_changed.connect(self.on_selection_changed)
+            if hasattr(self.canvas, 'color_picked'):
+                self.canvas.color_picked.connect(self.on_color_picked)
         except AttributeError:
-            # Canvas doesn't have selection_changed signal yet
             pass
         
         # Text editing connections
