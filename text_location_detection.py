@@ -68,6 +68,7 @@ def detect_text_regions(image_path: str) -> tuple[list[tuple], Image.Image | Non
         print(f"Error during text detection for {image_path}: {e}")
         return [], None
 
+
 def visualize_bounding_boxes(pil_img: Image.Image, bounding_boxes: list[tuple], output_path: str):
     """
     Draws bounding boxes on the image and saves the result.

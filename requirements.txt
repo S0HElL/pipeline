@@ -1,0 +1,9 @@
+Pillow
+manga-ocr
+easyocr
+opencv-python
+googletrans
+pyphen
+iopaint
+torch
+numpy

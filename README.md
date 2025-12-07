@@ -28,12 +28,15 @@ This project implements a multi-modal processing pipeline that combines:
 
 ### Dependencies
 - Python 3.8+
-- PyTorch
-- manga-ocr
-- EasyOCR
 - Pillow (PIL)
-- OpenCV
-- Translation API or local translation model
+- numpy
+- opencv-python
+- torch (for GPU support in EasyOCR and iopaint)
+- manga-ocr
+- easyocr
+- pyphen
+- googletrans
+- iopaint (Requires separate installation if not using pip package)
 
 ## Installation
 
@@ -59,48 +62,22 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4. Configure translation (choose one)
-
-#### Option A: DeepL API (Recommended - Free tier available)
-1. Sign up at https://www.deepl.com/pro-api
-2. Get your API key
-3. Create `.env` file:
-```
-DEEPL_API_KEY=your_api_key_here
-```
-
-#### Option B: Google Cloud Translation
-1. Set up Google Cloud project
-2. Enable Translation API
-3. Download credentials JSON
-4. Set environment variable to credentials path
-
-#### Option C: Local Translation Model
-No setup required - uses offline Hugging Face models (slower, less natural translations)
+### 4. Configure translation
+The pipeline currently uses `googletrans` for translation, which requires no API key setup.
 
 ## Usage
 
 ### Basic Usage
 ```bash
-python main.py --input path/to/manga_page.jpg --output translated_output.jpg
+python main.py path/to/manga_page.jpg
 ```
+The output file (`manga_page_translated.jpg`) will be saved in the `output/` directory.
 
 ### Advanced Options
-```bash
-python main.py \
-  --input input_image.jpg \
-  --output output_image.jpg \
-  --translation-method deepl \
-  --visualize-boxes
-```
+(None currently supported)
 
 ### Command Line Arguments
-- `--input`: Path to input manga image
-- `--output`: Path to save translated image
-- `--translation-method`: Translation method (deepl/google/local)
-- `--visualize-boxes`: Show detected text bounding boxes
-- `--font-size`: Base font size for rendered text
-- `--language`: Source language (default: Japanese)
+- `input_file` (positional): Path to the input manga image file.
 
 ## Project Structure
 
@@ -155,6 +132,7 @@ manga-translator/
 - Text overlapping image borders may be cut off
 - Very long translations might not fit in small speech bubbles
 - Background patterns may not perfectly match after inpainting
+- Text renderer uses the smallest font size for vertical text boxes
 
 ## Troubleshooting
 
@@ -211,8 +189,8 @@ MIT License - See LICENSE file for details
 
 - manga-ocr for Japanese OCR capabilities
 - EasyOCR for text detection
-- DeepL/Google for translation APIs
-- LaMa for inpainting model
+- googletrans for translation
+- iopaint (LaMa model) for inpainting
 - The open-source community
 
 ## Contact
